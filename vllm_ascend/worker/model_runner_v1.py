@@ -57,6 +57,7 @@ from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 from vllm.model_executor.layers.mamba.abstract import MambaBase
 from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.models.extract_hidden_states import CacheOnlyAttentionLayer
+from vllm.model_executor.models.utils import lwd_role_of
 from vllm.model_executor.offloader.base import get_offloader, set_offloader
 from vllm.sequence import IntermediateTensors
 from vllm.utils.gpu_sync_debug import gpu_sync_allowed
@@ -4640,9 +4641,15 @@ class NPUModelRunner(GPUModelRunner):
                     module.prepare_ring_compressor(self.max_num_tokens, self.device)
 
         # TODO: refactor the logic of attention
+        # LWD edge owns no attention layers (its get_kv_cache_spec() is empty)
+        # and never drafts: draft/verify run entirely on the cloud. Building
+        # the drafter attention backend on the edge would index empty draft
+        # attention groups (e.g. dspark) and crash, so keep the edge drafter
+        # inert -- the same regime MTP-LWD already runs under.
         if (
             self.speculative_config
             and self.drafter is not None
+            and lwd_role_of(self.vllm_config) != "edge"
             and (
                 self.speculative_config.use_eagle()
                 or self.speculative_config.uses_draft_model()
